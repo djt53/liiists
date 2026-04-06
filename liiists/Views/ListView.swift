@@ -256,12 +256,14 @@ struct ListView: View {
     @State private var isSubmitting = false
 
     private func addItem() {
-        let text = newItemText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else {
+        let entries = Self.parseEntries(from: newItemText)
+        guard !entries.isEmpty else {
             return
         }
         isSubmitting = true
-        list.items.insert(ListItem(text: text), at: 0)
+        for entry in entries.reversed() {
+            list.items.insert(ListItem(text: entry), at: 0)
+        }
         Theme.lightHaptic()
         newItemText = ""
         isAdding = true
@@ -269,6 +271,37 @@ struct ListView: View {
             isAddFieldFocused = true
             isSubmitting = false
         }
+    }
+
+    static func parseEntries(from raw: String) -> [String] {
+        let lines = raw.split(whereSeparator: { $0.isNewline })
+        var results: [String] = []
+        for line in lines {
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            // Strip common bullet markers
+            let bulletPrefixes: [Character] = ["-", "*", "•", "·", "–", "—"]
+            if let first = trimmed.first, bulletPrefixes.contains(first) {
+                trimmed = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+            } else {
+                // Strip numbered prefixes like "1." "1)" "12:"
+                let scanner = Scanner(string: trimmed)
+                scanner.charactersToBeSkipped = nil
+                if let _ = scanner.scanCharacters(from: .decimalDigits),
+                   let sep = scanner.scanCharacter(),
+                   sep == "." || sep == ")" || sep == ":" {
+                    trimmed = String(trimmed[scanner.currentIndex...]).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            if !trimmed.isEmpty {
+                results.append(trimmed)
+            }
+        }
+        if results.isEmpty {
+            let fallback = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallback.isEmpty { return [fallback] }
+        }
+        return results
     }
 
     private func shareListAsText() {
