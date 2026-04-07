@@ -105,13 +105,18 @@ struct ListView: View {
                             .strokeBorder(Theme.ndBorderVisible.resolve(for: colorScheme).opacity(0.5), lineWidth: Theme.checkboxStroke)
                             .frame(width: Theme.checkboxSize, height: Theme.checkboxSize)
                     }
-                    TextField("Add item\u{2026}", text: $newItemText)
+                    TextField("Add item\u{2026}", text: $newItemText, axis: .vertical)
                         .font(Theme.bodyFont())
                         .foregroundStyle(Theme.ndTextPrimary.resolve(for: colorScheme))
                         .focused($isAddFieldFocused)
                         .submitLabel(.next)
                         .onSubmit {
                             addItem()
+                        }
+                        .onChange(of: newItemText) { _, newValue in
+                            if newValue.contains(where: { $0.isNewline }) {
+                                addItem()
+                            }
                         }
                 }
                 .padding(.horizontal, Theme.spaceMD)
