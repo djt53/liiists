@@ -1,22 +1,7 @@
-# Xcode
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcworkspace/xcuserdata/
-DerivedData/
-*.moved-aside
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
-
 # macOS
 .DS_Store
 *.swp
 *~
-
-# Generated Xcode project (regenerate with `xcodegen generate`)
-liiists.xcodeproj/
-build/
 
 # MCP server
 mcp/node_modules/

@@ -1,16 +1,14 @@
 # liiists
 
-A dead-simple list app where markdown files are the source of truth. Every interface -iOS app, CLI, AI tools -reads and writes the same files.
+A dead-simple list tool where markdown files are the source of truth. Every interface -- iOS app, CLI, AI tools -- reads and writes the same files.
 
-## Why
+## CLI
 
-List apps are either too simple or too complex. None are designed to work with AI. liiists is markdown-first: any tool that can read a text file can work with your lists.
+Manage lists from your terminal. Written in Go, zero dependencies.
 
-## What's built
-
-**iOS app** -clean, native SwiftUI list app on [TestFlight](https://testflight.apple.com/). Create lists, check items off, search across everything. Syncs via iCloud Drive.
-
-**CLI** -manage lists from your terminal. Written in Go, zero dependencies.
+```bash
+brew install djt53/liiists/liiists
+```
 
 ```bash
 liiists init                       # set up your lists directory
@@ -21,9 +19,21 @@ liiists ls books                   # show items in a list
 liiists check books "Project Hail Mary"  # toggle a checkbox
 liiists rm books "Project Hail Mary"     # remove an item
 echo "messy, text, input" | liiists parse books  # parse text into items
+liiists where                      # show active lists directory
 ```
 
-**MCP server** -lets AI assistants manage your lists programmatically. 8 tools: `list_lists`, `read_list`, `create_list`, `add_items`, `remove_item`, `check_item`, `delete_list`, `parse_text`.
+The CLI auto-detects the iCloud Drive container used by the iOS app, so your lists sync automatically.
+
+Or point it at any directory:
+
+```yaml
+# ~/.config/liiists/config.yaml
+lists_dir: ~/my-lists
+```
+
+## MCP Server
+
+Lets AI assistants manage your lists programmatically. 8 tools: `list_lists`, `read_list`, `create_list`, `add_items`, `remove_item`, `check_item`, `delete_list`, `parse_text`.
 
 ```json
 {
@@ -36,13 +46,11 @@ echo "messy, text, input" | liiists parse books  # parse text into items
 }
 ```
 
-**Agent skill** -[`SKILL.md`](./SKILL.md) is a drop-in skill file for Claude Code (and any coding agent that reads agent guides). Copy it into your skills directory (e.g. `~/.claude/skills/liiists/SKILL.md`) and your agent will know how to manage your lists via the CLI — adding items, parsing free-text dumps, checking things off. Works alongside the MCP server or on its own.
+## Agent Skill
 
-**Share Extension** -share a URL or text from any app into a list.
+[`SKILL.md`](./SKILL.md) is a drop-in skill file for Claude Code (and any coding agent that reads agent guides). Copy it into your skills directory and your agent will know how to manage your lists via the CLI.
 
-**Siri Shortcuts** -"Add Severance to my TV list."
-
-## The format
+## The Format
 
 Lists are plain markdown files. That's it.
 
@@ -59,42 +67,14 @@ created: 2026-03-26
 ```
 
 - `type` is `list` (plain bullets) or `checklist` (checkboxes)
-- Frontmatter is optional -a bare bullet list is a valid list
+- Frontmatter is optional -- a bare bullet list is a valid list
 - Title resolves from: frontmatter > H1 heading > filename
 
-## Architecture
+## iOS App
 
-```
-liiists/
-├── cli/              # Go CLI -single binary, fast
-├── mcp/              # Node.js MCP server
-├── liiists/          # SwiftUI iOS app
-│   ├── Models/       # ItemList, ListItem
-│   ├── Services/     # MarkdownParser, ListStore, iCloud sync
-│   └── Views/        # HomeView, ListView
-├── ShareExtension/   # iOS Share Sheet
-└── liiistsTests/     # Markdown parser tests
-```
+There's a native SwiftUI app on TestFlight that reads and writes the same markdown files via iCloud Drive. Share Extension, Siri Shortcuts, Widgets, and a social Discover surface for publishing and browsing lists.
 
-All three interfaces share one contract: the markdown file format. No shared code, no shared runtime. Just files.
-
-## Sync
-
-The iOS app stores lists in an iCloud Drive container. Files are visible in Files.app and sync across devices. The CLI can read the same files at:
-
-```
-~/Library/Mobile Documents/iCloud~com~davidtingle~liiists/Documents/
-```
-
-Or point it at any directory via `~/.config/liiists/config.yaml`:
-
-```yaml
-lists_dir: ~/my-lists
-```
-
-## Design
-
-The app's visual language is inspired by Nothing's design system, implemented using [dominikmartn/nothing-design-skill](https://github.com/dominikmartn/nothing-design-skill). Monochromatic, dark-first, with dot-matrix typography (Doto) and Space Grotesk/Space Mono.
+The app source lives in a separate private repo.
 
 ## License
 
