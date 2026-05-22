@@ -72,9 +72,9 @@ created: 2026-03-26
 
 ## iOS App
 
-There's a native SwiftUI app on TestFlight that reads and writes the same markdown files via iCloud Drive. Share Extension, Siri Shortcuts, Widgets, and a social Discover surface for publishing and browsing lists.
+A native SwiftUI app, [live on the App Store](https://apps.apple.com/app/id6761671906), that reads and writes the same markdown files via iCloud Drive. Share Extension, Siri Shortcuts, Widgets, and a social Discover surface for publishing and browsing lists.
 
-The app source lives in a separate private repo.
+The app source lives at [djt53/liiists-app](https://github.com/djt53/liiists-app).
 
 ## License
 
