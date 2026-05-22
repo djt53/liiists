@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mdp/qrterminal/v3"
@@ -34,8 +35,8 @@ func main() {
 		err = cmdRm(args)
 	case "check":
 		err = cmdCheck(args)
-	case "parse":
-		err = cmdParse(args)
+	case "split":
+		err = cmdSplit(args)
 	case "where":
 		err = cmdWhere()
 	case "link":
@@ -65,7 +66,7 @@ usage:
   liiists ls <name>               show items in a list
   liiists rm <list> <item>        remove an item
   liiists check <list> <item>     toggle checkbox (checklists)
-  liiists parse [list]            parse messy text from stdin into items
+  liiists split [list]            split stdin into items (strips bullets, splits on commas)
   liiists where                   show the lists directory in use
   liiists link                    show a QR code to link the iOS app to this directory
 `)
@@ -280,23 +281,15 @@ func cmdRm(args []string) error {
 		return err
 	}
 
-	search := strings.ToLower(strings.Join(args[1:], " "))
-	found := false
-	var remaining []Item
-	for _, item := range l.Items {
-		if !found && strings.ToLower(item.Text) == search {
-			fmt.Printf("- %s\n", item.Text)
-			found = true
-			continue
-		}
-		remaining = append(remaining, item)
+	query := strings.Join(args[1:], " ")
+	idx, candidates := matchItem(l.Items, query)
+	if idx < 0 {
+		printSuggestions(query, l.Items, candidates)
+		return fmt.Errorf("item not found")
 	}
 
-	if !found {
-		return fmt.Errorf("item not found: %s", strings.Join(args[1:], " "))
-	}
-
-	l.Items = remaining
+	fmt.Printf("- %s\n", l.Items[idx].Text)
+	l.Items = append(l.Items[:idx], l.Items[idx+1:]...)
 	return l.Write()
 }
 
@@ -314,33 +307,112 @@ func cmdCheck(args []string) error {
 		return fmt.Errorf("'%s' is not a checklist", l.Title)
 	}
 
-	search := strings.ToLower(strings.Join(args[1:], " "))
-	found := false
-	for i, item := range l.Items {
-		if strings.ToLower(item.Text) == search {
-			l.Items[i].IsChecked = !l.Items[i].IsChecked
-			if l.Items[i].IsChecked {
-				fmt.Printf("[x] %s\n", item.Text)
-			} else {
-				fmt.Printf("[ ] %s\n", item.Text)
-			}
-			found = true
-			break
-		}
+	query := strings.Join(args[1:], " ")
+	idx, candidates := matchItem(l.Items, query)
+	if idx < 0 {
+		printSuggestions(query, l.Items, candidates)
+		return fmt.Errorf("item not found")
 	}
 
-	if !found {
-		return fmt.Errorf("item not found: %s", strings.Join(args[1:], " "))
+	l.Items[idx].IsChecked = !l.Items[idx].IsChecked
+	if l.Items[idx].IsChecked {
+		fmt.Printf("[x] %s\n", l.Items[idx].Text)
+	} else {
+		fmt.Printf("[ ] %s\n", l.Items[idx].Text)
 	}
-
 	return l.Write()
 }
 
-func cmdParse(args []string) error {
+// matchItem finds an item by query with fuzzy fallback.
+// Returns (idx, nil) when one item unambiguously matches (caller applies it).
+// Returns (-1, candidates) when no unambiguous match — candidates is up to 3
+// item indices ranked by closeness, for a "did you mean?" prompt.
+//
+// Match order: case-insensitive exact → case-insensitive substring (only if
+// exactly one hit) → Levenshtein distance ranking of all items.
+func matchItem(items []Item, query string) (int, []int) {
+	if len(items) == 0 {
+		return -1, nil
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+
+	for i, item := range items {
+		if strings.ToLower(item.Text) == q {
+			return i, nil
+		}
+	}
+
+	var substr []int
+	for i, item := range items {
+		if strings.Contains(strings.ToLower(item.Text), q) {
+			substr = append(substr, i)
+		}
+	}
+	if len(substr) == 1 {
+		return substr[0], nil
+	}
+	if len(substr) > 1 {
+		return -1, substr[:min(len(substr), 3)]
+	}
+
+	type scored struct {
+		idx  int
+		dist int
+	}
+	scores := make([]scored, len(items))
+	for i, item := range items {
+		scores[i] = scored{idx: i, dist: levenshtein(q, strings.ToLower(item.Text))}
+	}
+	sort.Slice(scores, func(i, j int) bool { return scores[i].dist < scores[j].dist })
+	n := min(len(scores), 3)
+	candidates := make([]int, n)
+	for i := 0; i < n; i++ {
+		candidates[i] = scores[i].idx
+	}
+	return -1, candidates
+}
+
+func printSuggestions(query string, items []Item, candidates []int) {
+	if len(candidates) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "no match for %q. did you mean:\n", query)
+	for _, idx := range candidates {
+		fmt.Fprintf(os.Stderr, "  %s\n", items[idx].Text)
+	}
+}
+
+func levenshtein(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := 0; j <= len(b); j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min(curr[j-1]+1, min(prev[j]+1, prev[j-1]+cost))
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
+}
+
+func cmdSplit(args []string) error {
 	// Read from stdin
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
-		return fmt.Errorf("pipe messy text via stdin: echo 'text' | liiists parse [list]")
+		return fmt.Errorf("pipe text via stdin: echo 'a, b, c' | liiists split [list]")
 	}
 
 	var input strings.Builder
@@ -352,7 +424,7 @@ func cmdParse(args []string) error {
 
 	items := parseMessyText(input.String())
 	if len(items) == 0 {
-		fmt.Println("no items parsed from input")
+		fmt.Println("no items found in input")
 		return nil
 	}
 
