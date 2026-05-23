@@ -86,9 +86,16 @@ created: 2026-03-26
 - [ ] The Kaiju Preservation Society
 ```
 
-- `type` is `list` (plain bullets) or `checklist` (checkboxes)
+- `type` is `list` (plain bullets), `checklist` (checkboxes), or `log` (timestamped reverse-chronological entries — iOS-only for now; CLI/MCP support planned)
 - Frontmatter is optional -- a bare bullet list is a valid list
 - Title resolves from: frontmatter > H1 heading > filename
+
+Log entries use a timestamped bullet format — naive local datetime joined to text with an em-dash:
+
+```markdown
+- 2026-05-23T22:55 — Sirat #film
+- 2026-05-22T19:30 — Severance S2E10
+```
 
 ## iOS App
 
@@ -99,6 +106,7 @@ A native SwiftUI app, [live on the App Store](https://apps.apple.com/app/id67616
 - **Widgets** — single list, all lists, or quick-add from the home screen
 - **On-device AI "Suggest more"** — Apple Foundation Models suggests new items based on what's already on the list. Runs locally; no server call.
 - **Discover** — optionally publish a list publicly. Other users can browse, upvote, and save published lists. Anonymous-first; no account needed unless you want to publish.
+- **Log lists** — timestamped reverse-chronological entries for media journals, food diaries, etc. Searchable by text or date.
 
 Source: [djt53/liiists-app](https://github.com/djt53/liiists-app).
 
