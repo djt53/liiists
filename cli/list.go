@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -13,7 +14,7 @@ import (
 // List represents a parsed markdown list file.
 type List struct {
 	Title   string
-	Type    string // "list" or "checklist"
+	Type    string // "list", "checklist", or "log"
 	Created string
 	Items   []Item
 	Extra   map[string]string // unknown frontmatter fields, preserved on write
@@ -24,7 +25,19 @@ type List struct {
 type Item struct {
 	Text      string
 	IsChecked bool
+	// Timestamp is populated only for entries in a "log" list. Naive local
+	// datetime, minute resolution. See decision 016.
+	Timestamp *time.Time
 }
+
+// logTimestampLayout — ISO 8601, minute resolution, no timezone. Matches the
+// iOS app's MarkdownParser.logTimestampFormatter.
+const logTimestampLayout = "2006-01-02T15:04"
+
+// logSeparator — em-dash with spaces on both sides. First occurrence after
+// the timestamp delimits the entry text; subsequent em-dashes belong to the
+// text.
+const logSeparator = " — "
 
 // --- Parsing ---
 
@@ -93,6 +106,12 @@ func Parse(content, path string) (*List, error) {
 	scanner := bufio.NewScanner(strings.NewReader(body))
 	for scanner.Scan() {
 		line := scanner.Text()
+		if l.Type == "log" {
+			if item, ok := parseLogEntry(line); ok {
+				l.Items = append(l.Items, item)
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "- [x] ") {
 			l.Items = append(l.Items, Item{Text: strings.TrimPrefix(line, "- [x] "), IsChecked: true})
 		} else if strings.HasPrefix(line, "- [ ] ") {
@@ -102,7 +121,44 @@ func Parse(content, path string) (*List, error) {
 		}
 	}
 
+	// Log entries sort newest first regardless of on-disk order.
+	if l.Type == "log" {
+		sortLogItems(l.Items)
+	}
+
 	return l, nil
+}
+
+func parseLogEntry(line string) (Item, bool) {
+	if !strings.HasPrefix(line, "- ") {
+		return Item{}, false
+	}
+	body := strings.TrimPrefix(line, "- ")
+	idx := strings.Index(body, logSeparator)
+	if idx < 0 {
+		return Item{}, false
+	}
+	tsStr := strings.TrimSpace(body[:idx])
+	text := body[idx+len(logSeparator):]
+	ts, err := time.ParseInLocation(logTimestampLayout, tsStr, time.Local)
+	if err != nil {
+		return Item{}, false
+	}
+	return Item{Text: text, Timestamp: &ts}, true
+}
+
+func sortLogItems(items []Item) {
+	// Newest first; items without a timestamp sink to the bottom.
+	sort.SliceStable(items, func(i, j int) bool {
+		ti, tj := items[i].Timestamp, items[j].Timestamp
+		if ti == nil {
+			return false
+		}
+		if tj == nil {
+			return true
+		}
+		return ti.After(*tj)
+	})
 }
 
 // --- Writing ---
@@ -127,15 +183,27 @@ func (l *List) Render() string {
 	b.WriteString("---\n\n")
 
 	// Items
-	for _, item := range l.Items {
-		if l.Type == "checklist" {
-			if item.IsChecked {
-				b.WriteString(fmt.Sprintf("- [x] %s\n", item.Text))
-			} else {
-				b.WriteString(fmt.Sprintf("- [ ] %s\n", item.Text))
+	if l.Type == "log" {
+		// Reverse-chrono on disk so the file reads the same way the iOS app
+		// displays.
+		sortLogItems(l.Items)
+		for _, item := range l.Items {
+			if item.Timestamp == nil {
+				continue
 			}
-		} else {
-			b.WriteString(fmt.Sprintf("- %s\n", item.Text))
+			b.WriteString(fmt.Sprintf("- %s%s%s\n", item.Timestamp.Format(logTimestampLayout), logSeparator, item.Text))
+		}
+	} else {
+		for _, item := range l.Items {
+			if l.Type == "checklist" {
+				if item.IsChecked {
+					b.WriteString(fmt.Sprintf("- [x] %s\n", item.Text))
+				} else {
+					b.WriteString(fmt.Sprintf("- [ ] %s\n", item.Text))
+				}
+			} else {
+				b.WriteString(fmt.Sprintf("- %s\n", item.Text))
+			}
 		}
 	}
 

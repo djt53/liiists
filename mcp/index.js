@@ -9,6 +9,58 @@ import os from "os";
 
 // --- Markdown parser/writer (mirrors cli/list.go) ---
 
+// Log entries use ISO 8601 (minute resolution, no timezone) joined to text by
+// an em-dash with spaces on both sides. See decision 016. Matches the layout
+// in cli/list.go and the iOS MarkdownParser.
+const LOG_SEPARATOR = " — ";
+const LOG_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+function parseLogTimestamp(s) {
+  if (!LOG_TIMESTAMP_REGEX.test(s)) return null;
+  const [datePart, timePart] = s.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm);
+}
+
+function formatLogTimestamp(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Accepts the strict ISO `T` form ("2026-05-23T22:55") or the human-friendly
+// space form ("2026-05-23 22:55"). Mirrors the CLI's --at flag.
+function parseAtParam(raw) {
+  const normalized = raw.replace(" ", "T");
+  return parseLogTimestamp(normalized);
+}
+
+function nowToMinute() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes());
+}
+
+function parseLogLine(line) {
+  if (!line.startsWith("- ")) return null;
+  const body = line.slice(2);
+  const idx = body.indexOf(LOG_SEPARATOR);
+  if (idx < 0) return null;
+  const tsStr = body.slice(0, idx).trim();
+  const text = body.slice(idx + LOG_SEPARATOR.length);
+  const ts = parseLogTimestamp(tsStr);
+  if (!ts) return null;
+  return { text, isChecked: false, timestamp: ts };
+}
+
+function sortLogItems(items) {
+  // Newest first; entries without a timestamp sink to the bottom.
+  items.sort((a, b) => {
+    if (!a.timestamp) return 1;
+    if (!b.timestamp) return -1;
+    return b.timestamp - a.timestamp;
+  });
+}
+
 function getListsDir() {
   const home = os.homedir();
   const configPath = path.join(home, ".config", "liiists", "config");
@@ -88,6 +140,11 @@ function parseList(content, filePath) {
 
   // Parse items
   for (const line of body.split("\n")) {
+    if (list.type === "log") {
+      const item = parseLogLine(line);
+      if (item) list.items.push(item);
+      continue;
+    }
     if (line.startsWith("- [x] ")) {
       list.items.push({ text: line.slice(6), isChecked: true });
     } else if (line.startsWith("- [ ] ")) {
@@ -95,6 +152,10 @@ function parseList(content, filePath) {
     } else if (line.startsWith("- ")) {
       list.items.push({ text: line.slice(2), isChecked: false });
     }
+  }
+
+  if (list.type === "log") {
+    sortLogItems(list.items);
   }
 
   return list;
@@ -110,11 +171,21 @@ function renderList(list) {
   }
   out += "---\n\n";
 
-  for (const item of list.items) {
-    if (list.type === "checklist") {
-      out += item.isChecked ? `- [x] ${item.text}\n` : `- [ ] ${item.text}\n`;
-    } else {
-      out += `- ${item.text}\n`;
+  if (list.type === "log") {
+    // Reverse-chrono on disk so the file reads the same way the iOS app
+    // displays.
+    sortLogItems(list.items);
+    for (const item of list.items) {
+      if (!item.timestamp) continue;
+      out += `- ${formatLogTimestamp(item.timestamp)}${LOG_SEPARATOR}${item.text}\n`;
+    }
+  } else {
+    for (const item of list.items) {
+      if (list.type === "checklist") {
+        out += item.isChecked ? `- [x] ${item.text}\n` : `- [ ] ${item.text}\n`;
+      } else {
+        out += `- ${item.text}\n`;
+      }
     }
   }
 
@@ -211,6 +282,9 @@ server.tool(
           if (list.type === "checklist") {
             return item.isChecked ? `[x] ${item.text}` : `[ ] ${item.text}`;
           }
+          if (list.type === "log" && item.timestamp) {
+            return `${formatLogTimestamp(item.timestamp)}  ${item.text}`;
+          }
           return `- ${item.text}`;
         })
         .join("\n");
@@ -227,10 +301,10 @@ server.tool(
   {
     name: z.string().describe("Name for the new list"),
     type: z
-      .enum(["list", "checklist"])
+      .enum(["list", "checklist", "log"])
       .optional()
       .default("list")
-      .describe("List type: 'list' (plain) or 'checklist' (with checkboxes)"),
+      .describe("List type: 'list' (plain), 'checklist' (with checkboxes), or 'log' (timestamped reverse-chronological entries)"),
   },
   async ({ name, type }) => {
     const dir = getListsDir();
@@ -267,14 +341,18 @@ server.tool(
 // Tool: add_items
 server.tool(
   "add_items",
-  "Add one or more items to a list",
+  "Add one or more items to a list. For log lists, entries auto-stamp with the current minute unless `at` is provided.",
   {
     list: z.string().describe("List name or slug"),
-    items: z
-      .array(z.string())
-      .describe("Items to add"),
+    items: z.array(z.string()).describe("Items to add"),
+    at: z
+      .string()
+      .optional()
+      .describe(
+        "Log lists only. Timestamp to apply to all added entries, format 'YYYY-MM-DDTHH:MM' or 'YYYY-MM-DD HH:MM' (local time, no timezone). Defaults to now."
+      ),
   },
-  async ({ list: listName, items }) => {
+  async ({ list: listName, items, at }) => {
     const list = findList(listName);
     if (!list) {
       return {
@@ -283,8 +361,45 @@ server.tool(
       };
     }
 
+    let stamp = null;
+    if (list.type === "log") {
+      if (at) {
+        stamp = parseAtParam(at);
+        if (!stamp) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `'at' must be 'YYYY-MM-DDTHH:MM' or 'YYYY-MM-DD HH:MM', got: ${at}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      } else {
+        stamp = nowToMinute();
+      }
+    } else if (at) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `'at' is only valid for log lists; '${list.title}' is a ${list.type}.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const addedLines = [];
     for (const text of items) {
-      list.items.push({ text, isChecked: false });
+      if (list.type === "log") {
+        list.items.push({ text, isChecked: false, timestamp: stamp });
+        addedLines.push(`+ ${formatLogTimestamp(stamp)}  ${text}`);
+      } else {
+        list.items.push({ text, isChecked: false });
+        addedLines.push(`+ ${text}`);
+      }
     }
 
     fs.writeFileSync(list.path, renderList(list));
@@ -292,7 +407,7 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Added ${items.length} item(s) to ${list.title}:\n${items.map((i) => `+ ${i}`).join("\n")}`,
+          text: `Added ${items.length} item(s) to ${list.title}:\n${addedLines.join("\n")}`,
         },
       ],
     };
@@ -431,8 +546,13 @@ server.tool(
         };
       }
 
+      const stamp = list.type === "log" ? nowToMinute() : null;
       for (const item of items) {
-        list.items.push({ text: item, isChecked: false });
+        if (list.type === "log") {
+          list.items.push({ text: item, isChecked: false, timestamp: stamp });
+        } else {
+          list.items.push({ text: item, isChecked: false });
+        }
       }
       fs.writeFileSync(list.path, renderList(list));
 

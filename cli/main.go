@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mdp/qrterminal/v3"
 )
@@ -61,7 +62,11 @@ func printUsage() {
 usage:
   liiists init                    set up your lists directory
   liiists new <name>              create a new list
+  liiists new <name> --checklist  create a checklist
+  liiists new <name> --log        create a log (timestamped entries)
   liiists add <list> <item>       add an item (or pipe stdin)
+                                  log entries auto-stamp now; pass
+                                  --at "YYYY-MM-DD HH:MM" to backdate
   liiists ls                      show all lists
   liiists ls <name>               show items in a list
   liiists rm <list> <item>        remove an item
@@ -137,7 +142,7 @@ func cmdInit() error {
 
 func cmdNew(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: liiists new <name> [--checklist]")
+		return fmt.Errorf("usage: liiists new <name> [--checklist|--log]")
 	}
 
 	dir, err := getListsDir()
@@ -148,8 +153,11 @@ func cmdNew(args []string) error {
 	name := args[0]
 	listType := "list"
 	for _, a := range args[1:] {
-		if a == "--checklist" || a == "-c" {
+		switch a {
+		case "--checklist", "-c":
 			listType = "checklist"
+		case "--log", "-l":
+			listType = "log"
 		}
 	}
 
@@ -182,19 +190,58 @@ func createList(dir, name, listType string) error {
 
 func cmdAdd(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: liiists add <list> <item...>")
+		return fmt.Errorf("usage: liiists add <list> <item...> [--at \"YYYY-MM-DD HH:MM\"]")
 	}
+
+	// Pull out --at "YYYY-MM-DD HH:MM" if present. Only meaningful for log
+	// lists; ignored otherwise. Accepts the space form on input; the on-disk
+	// representation always uses the ISO `T` form.
+	var atTime *time.Time
+	cleaned := []string{args[0]}
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--at" && i+1 < len(args) {
+			parsed, err := parseAtFlag(args[i+1])
+			if err != nil {
+				return err
+			}
+			atTime = &parsed
+			i++
+			continue
+		}
+		cleaned = append(cleaned, args[i])
+	}
+	args = cleaned
 
 	l, err := findList(args[0])
 	if err != nil {
 		return err
 	}
 
+	stamp := func() *time.Time {
+		if l.Type != "log" {
+			return nil
+		}
+		if atTime != nil {
+			return atTime
+		}
+		now := time.Now().Truncate(time.Minute)
+		return &now
+	}
+
+	appendOne := func(text string) {
+		item := Item{Text: text, Timestamp: stamp()}
+		l.Items = append(l.Items, item)
+		if item.Timestamp != nil {
+			fmt.Printf("+ %s  %s\n", item.Timestamp.Format(logTimestampLayout), text)
+		} else {
+			fmt.Printf("+ %s\n", text)
+		}
+	}
+
 	if len(args) >= 2 {
 		// Items from arguments
 		text := strings.Join(args[1:], " ")
-		l.Items = append(l.Items, Item{Text: text})
-		fmt.Printf("+ %s\n", text)
+		appendOne(text)
 	} else {
 		// Read from stdin
 		stat, _ := os.Stdin.Stat()
@@ -203,8 +250,7 @@ func cmdAdd(args []string) error {
 			for scanner.Scan() {
 				text := strings.TrimSpace(scanner.Text())
 				if text != "" {
-					l.Items = append(l.Items, Item{Text: text})
-					fmt.Printf("+ %s\n", text)
+					appendOne(text)
 				}
 			}
 		} else {
@@ -213,6 +259,21 @@ func cmdAdd(args []string) error {
 	}
 
 	return l.Write()
+}
+
+// parseAtFlag accepts the human-friendly space form ("2026-05-22 14:30") for
+// the --at flag. The on-disk format always uses the ISO `T` form.
+func parseAtFlag(raw string) (time.Time, error) {
+	layouts := []string{
+		"2006-01-02 15:04",
+		"2006-01-02T15:04",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("--at value must be YYYY-MM-DD HH:MM, got %q", raw)
 }
 
 func cmdLs(args []string) error {
@@ -258,13 +319,20 @@ func cmdLs(args []string) error {
 	}
 
 	for _, item := range l.Items {
-		if l.Type == "checklist" {
+		switch l.Type {
+		case "checklist":
 			if item.IsChecked {
 				fmt.Printf("  [x] %s\n", item.Text)
 			} else {
 				fmt.Printf("  [ ] %s\n", item.Text)
 			}
-		} else {
+		case "log":
+			if item.Timestamp != nil {
+				fmt.Printf("  %s  %s\n", item.Timestamp.Format(logTimestampLayout), item.Text)
+			} else {
+				fmt.Printf("  %s\n", item.Text)
+			}
+		default:
 			fmt.Printf("  %s\n", item.Text)
 		}
 	}

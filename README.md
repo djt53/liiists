@@ -86,7 +86,7 @@ created: 2026-03-26
 - [ ] The Kaiju Preservation Society
 ```
 
-- `type` is `list` (plain bullets), `checklist` (checkboxes), or `log` (timestamped reverse-chronological entries — iOS-only for now; CLI/MCP support planned)
+- `type` is `list` (plain bullets), `checklist` (checkboxes), or `log` (timestamped reverse-chronological entries)
 - Frontmatter is optional -- a bare bullet list is a valid list
 - Title resolves from: frontmatter > H1 heading > filename
 
@@ -97,6 +97,8 @@ Log entries use a timestamped bullet format — naive local datetime joined to t
 - 2026-05-22T19:30 — Severance S2E10
 ```
 
+`liiists add <log> "<item>"` auto-stamps with the current minute; `--at "YYYY-MM-DD HH:MM"` backdates. MCP's `add_items` accepts an `at` field with the same format.
+
 ## iOS App
 
 A native SwiftUI app, [live on the App Store](https://apps.apple.com/app/id6761671906), that reads and writes the same markdown files via iCloud Drive (or any folder you point it at). Includes:
@@ -106,7 +108,7 @@ A native SwiftUI app, [live on the App Store](https://apps.apple.com/app/id67616
 - **Widgets** — single list, all lists, or quick-add from the home screen
 - **On-device AI "Suggest more"** — Apple Foundation Models suggests new items based on what's already on the list. Runs locally; no server call.
 - **Discover** — optionally publish a list publicly. Other users can browse, upvote, and save published lists. Anonymous-first; no account needed unless you want to publish.
-- **Log lists** — timestamped reverse-chronological entries for media journals, food diaries, etc. Searchable by text or date.
+- **Log lists** — timestamped reverse-chronological entries for media journals, food diaries, etc. Searchable by text or date. (Also editable from the CLI and MCP — see the [Format](#the-format) section.)
 
 Source: [djt53/liiists-app](https://github.com/djt53/liiists-app).
 

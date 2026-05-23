@@ -37,8 +37,11 @@ If the command is missing, tell the user: "Install liiists first — `brew insta
 | Show all lists | `liiists ls` |
 | Show items in a list | `liiists ls <name>` |
 | Create a new list | `liiists new <name>` |
+| Create a checklist | `liiists new <name> --checklist` |
+| Create a log | `liiists new <name> --log` |
 | Add an item | `liiists add <list> "<item>"` |
-| Add many items from messy text | `echo "<text>" \| liiists parse <list>` |
+| Add a log entry at a specific time | `liiists add <log> "<item>" --at "YYYY-MM-DD HH:MM"` |
+| Add many items from messy text | `echo "<text>" \| liiists split <list>` |
 | Remove an item | `liiists rm <list> "<item>"` |
 | Toggle a checkbox (checklists) | `liiists check <list> "<item>"` |
 | Show lists directory | `liiists where` |
@@ -49,9 +52,14 @@ List names are slugified filenames (`books-to-read`). Slugify informal names bef
 
 **Reading lists.** Always run `liiists ls <name>` rather than reading the markdown file directly — the CLI resolves titles and frontmatter consistently. Only `Read` the raw `.md` file when the user explicitly asks to see the source.
 
-**Adding items.** Quote items with spaces. For a single item use `add`. For 3+ items at once, or any free-text dump, pipe to `parse`.
+**Adding items.** Quote items with spaces. For a single item use `add`. For 3+ items at once, or any free-text dump, pipe to `split`.
 
-**Checklists vs lists.** Checklists support `check` to toggle `[x]`. Plain lists do not. To convert a list to a checklist, edit the file's frontmatter to set `type: checklist`.
+**List types.**
+- **list** — plain bullets
+- **checklist** — supports `check` to toggle `[x]`
+- **log** — timestamped reverse-chronological entries (media journals, food logs, etc.). `add` auto-stamps with the current minute; pass `--at "YYYY-MM-DD HH:MM"` to backdate. `check` does not apply to logs.
+
+To convert a list's type, edit the file's frontmatter `type:` field directly.
 
 **Don't invent list names.** If the user references "my list" ambiguously, run `liiists ls` first and ask which one. Never silently create a list to satisfy an `add`.
 
