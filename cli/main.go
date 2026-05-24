@@ -533,10 +533,10 @@ func cmdLink() error {
 	if err != nil {
 		return err
 	}
-	deepLink := "liiists://link?path=" + url.QueryEscape(dir)
+	link := "https://davidtingle.com/liiists/link?path=" + url.QueryEscape(dir)
 	fmt.Printf("scan with the liiists iOS app to link this directory:\n\n  %s\n\n", dir)
-	qrterminal.GenerateHalfBlock(deepLink, qrterminal.L, os.Stdout)
-	fmt.Printf("\n%s\n", deepLink)
+	qrterminal.GenerateHalfBlock(link, qrterminal.L, os.Stdout)
+	fmt.Printf("\n%s\n", link)
 	return nil
 }
 
